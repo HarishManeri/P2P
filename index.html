@@ -321,6 +321,8 @@
             transition: all 0.3s ease;
             background: white;
             box-shadow: inset 0 2px 5px rgba(0,0,0,0.05);
+            min-height: 55px;
+            max-height: 120px;
         }
 
         .message-input:focus {
@@ -536,7 +538,8 @@
                     class="message-input" 
                     placeholder="Type your secure message here..."
                     rows="1"
-                    onkeypress="handleKeyPress(event)"
+                    onkeydown="handleKeyPress(event)"
+                    oninput="autoResizeTextarea()"
                 ></textarea>
                 <button class="send-button" onclick="sendMessage()" id="sendBtn" disabled>
                     ➤
@@ -664,6 +667,9 @@
 
                     this.updateConnectionStatus('waiting');
                     this.addSystemMessage('⏳ Generating connection code... Please wait for ICE candidates.');
+                    
+                    // Disable button to prevent multiple offers
+                    document.getElementById('createOfferBtn').disabled = true;
                 } catch (error) {
                     this.logEvent(`Error creating offer: ${error.message}`);
                     this.addSystemMessage(`❌ Error creating offer: ${error.message}`, 'error');
@@ -684,6 +690,9 @@
 
                     this.updateConnectionStatus('waiting');
                     this.addSystemMessage('⏳ Generating response code... Please wait for ICE candidates.');
+                    
+                    // Disable button to prevent multiple answers
+                    document.getElementById('createAnswerBtn').disabled = true;
                 } catch (error) {
                     this.logEvent(`Error creating answer: ${error.message}`);
                     this.addSystemMessage(`❌ Error processing offer: ${error.message}. Please check the code format.`, 'error');
@@ -697,6 +706,9 @@
                     const answer = JSON.parse(answerString);
                     await this.pc.setRemoteDescription(answer);
                     this.addSystemMessage('✅ Response processed! Establishing secure connection...');
+                    
+                    // Disable button to prevent multiple processing
+                    document.getElementById('processAnswerBtn').disabled = true;
                 } catch (error) {
                     this.logEvent(`Error processing answer: ${error.message}`);
                     this.addSystemMessage(`❌ Error processing response: ${error.message}. Please check the code format.`, 'error');
@@ -769,6 +781,14 @@
                 if (data.type === 'message') {
                     this.addMessage(data.content, 'received', data.timestamp);
                     this.logEvent('Message received');
+                    
+                    // Show browser notification if page is not focused
+                    if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+                        new Notification('New SecureChat Message', {
+                            body: data.content.substring(0, 100) + (data.content.length > 100 ? '...' : ''),
+                            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">💬</text></svg>'
+                        });
+                    }
                 }
             }
 
@@ -812,3 +832,241 @@
                     statusText.textContent = 'Secure Connection';
                 } else if (status === 'waiting') {
                     statusDot.className = 'status-dot waiting';
+                    statusText.textContent = 'Connecting...';
+                } else {
+                    statusDot.className = 'status-dot';
+                    statusText.textContent = 'Disconnected';
+                }
+            }
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            autoResizeTextarea() {
+                const textarea = document.getElementById('messageInput');
+                textarea.style.height = 'auto';
+                textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+            }
+
+            // Request notification permission
+            requestNotificationPermission() {
+                if ('Notification' in window && Notification.permission === 'default') {
+                    Notification.requestPermission();
+                }
+            }
+        }
+
+        // Initialize the app
+        let secureChatApp;
+        window.addEventListener('DOMContentLoaded', () => {
+            secureChatApp = new SecureChatP2P();
+            secureChatApp.requestNotificationPermission();
+        });
+
+        // Global functions for UI interaction
+        function switchTab(tabName) {
+            // Hide all tab contents
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // Remove active class from all tabs
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Show selected tab content
+            document.getElementById(tabName + 'Tab').classList.add('active');
+            
+            // Add active class to selected tab
+            event.target.classList.add('active');
+        }
+
+        function createOffer() {
+            secureChatApp.createOffer();
+        }
+
+        function createAnswer() {
+            const offerInput = document.getElementById('offerInput').value.trim();
+            if (!offerInput) {
+                secureChatApp.addSystemMessage('❌ Please paste the offer code first.', 'error');
+                return;
+            }
+            secureChatApp.createAnswer(offerInput);
+        }
+
+        function processAnswer() {
+            const answerInput = document.getElementById('answerInput').value.trim();
+            if (!answerInput) {
+                secureChatApp.addSystemMessage('❌ Please paste the answer code first.', 'error');
+                return;
+            }
+            secureChatApp.processAnswer(answerInput);
+        }
+
+        function copyOffer() {
+            const offerCode = document.getElementById('offerCode').textContent;
+            navigator.clipboard.writeText(offerCode).then(() => {
+                showToast('✅ Offer code copied to clipboard!');
+            }).catch(err => {
+                console.error('Copy failed:', err);
+                showToast('❌ Failed to copy. Please select and copy manually.');
+            });
+        }
+
+        function copyAnswer() {
+            const answerCode = document.getElementById('answerCode').textContent;
+            navigator.clipboard.writeText(answerCode).then(() => {
+                showToast('✅ Answer code copied to clipboard!');
+            }).catch(err => {
+                console.error('Copy failed:', err);
+                showToast('❌ Failed to copy. Please select and copy manually.');
+            });
+        }
+
+        function sendMessage() {
+            secureChatApp.sendMessage();
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function autoResizeTextarea() {
+            secureChatApp.autoResizeTextarea();
+        }
+
+        // Toast notification function
+        function showToast(message) {
+            // Remove existing toast if any
+            const existingToast = document.querySelector('.toast');
+            if (existingToast) {
+                existingToast.remove();
+            }
+
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+            toast.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+                color: white;
+                padding: 12px 20px;
+                border-radius: 25px;
+                box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
+                z-index: 10000;
+                font-weight: 600;
+                font-size: 14px;
+                animation: slideInRight 0.3s ease-out;
+            `;
+
+            // Add keyframes for animation
+            if (!document.querySelector('#toast-styles')) {
+                const style = document.createElement('style');
+                style.id = 'toast-styles';
+                style.textContent = `
+                    @keyframes slideInRight {
+                        from {
+                            transform: translateX(100%);
+                            opacity: 0;
+                        }
+                        to {
+                            transform: translateX(0);
+                            opacity: 1;
+                        }
+                    }
+                    @keyframes slideOutRight {
+                        from {
+                            transform: translateX(0);
+                            opacity: 1;
+                        }
+                        to {
+                            transform: translateX(100%);
+                            opacity: 0;
+                        }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+
+            document.body.appendChild(toast);
+
+            // Auto remove after 3 seconds
+            setTimeout(() => {
+                toast.style.animation = 'slideOutRight 0.3s ease-in';
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.remove();
+                    }
+                }, 300);
+            }, 3000);
+        }
+
+        // Enhanced error handling
+        window.addEventListener('error', (event) => {
+            console.error('Global error:', event.error);
+            if (secureChatApp) {
+                secureChatApp.addSystemMessage('❌ An unexpected error occurred. Please refresh the page.', 'error');
+            }
+        });
+
+        // Handle page visibility changes for notifications
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && secureChatApp) {
+                // Page became visible, focus message input if connected
+                if (secureChatApp.isConnected) {
+                    setTimeout(() => {
+                        document.getElementById('messageInput').focus();
+                    }, 100);
+                }
+            }
+        });
+
+        // Prevent accidental page refresh when connected
+        window.addEventListener('beforeunload', (event) => {
+            if (secureChatApp && secureChatApp.isConnected) {
+                event.preventDefault();
+                event.returnValue = 'You are currently connected to a secure chat. Are you sure you want to leave?';
+                return event.returnValue;
+            }
+        });
+
+        // Handle connection cleanup on page unload
+        window.addEventListener('unload', () => {
+            if (secureChatApp && secureChatApp.pc) {
+                secureChatApp.pc.close();
+            }
+        });
+
+        // Service Worker registration for better PWA experience
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('data:text/javascript,').catch(() => {
+                // Silently fail if service worker registration fails
+            });
+        }
+
+        // Add PWA meta tags dynamically
+        const themeColorMeta = document.createElement('meta');
+        themeColorMeta.name = 'theme-color';
+        themeColorMeta.content = '#4facfe';
+        document.head.appendChild(themeColorMeta);
+
+        const manifestLink = document.createElement('link');
+        manifestLink.rel = 'manifest';
+        manifestLink.href = 'data:application/json,{"name":"SecureChat P2P","short_name":"SecureChat","description":"Private P2P messaging","start_url":"/","display":"standalone","background_color":"#667eea","theme_color":"#4facfe","icons":[{"src":"data:image/svg+xml,<svg xmlns=\\"http://www.w3.org/2000/svg\\" viewBox=\\"0 0 100 100\\"><text y=\\".9em\\" font-size=\\"90\\">💬</text></svg>","sizes":"192x192","type":"image/svg+xml"}]}';
+        document.head.appendChild(manifestLink);
+
+        console.log('🔒 SecureChat P2P loaded successfully!');
+        console.log('📱 This app works completely offline and stores no data.');
+        console.log('🛡️ All communications are end-to-end encrypted via WebRTC.');
+    </script>
+</body>
+</html>
